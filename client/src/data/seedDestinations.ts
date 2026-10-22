@@ -43,7 +43,7 @@ export const INITIAL_DESTINATIONS: Destination[] = [
     longitude: 80.0520,
     operatingHours: '06:00 AM - 06:30 PM',
     description: "A historic hilltop temple featuring South Asia's longest reclining Buddha statue, measuring approximately 115 feet in length, offering panoramic views of the coastal lowlands.",
-    imageUrl: 'https://images.unsplash.com/photo-1544735716-392fe2489ffa?auto=format&fit=crop&w=800&q=80',
+    imageUrl: 'image\galagoda-shailatharama.jpg',
     distanceFromMadakumburaKm: 3.5,
     recommendedStayMinutes: 60,
     address: 'Galagoda, Maha Vihara Rd, Ambalangoda',
