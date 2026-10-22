@@ -367,6 +367,7 @@ export default function App() {
         {activeTab === 'itinerary' && (
           <ItineraryPlanner
             planQueue={planQueue}
+            onReorderQueue={(newQueue) => setPlanQueue(newQueue)}
             onRemoveFromQueue={removeFromQueue}
             onClearQueue={clearQueue}
             currentItinerary={currentItinerary}

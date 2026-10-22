@@ -87,8 +87,132 @@ export function sequenceNearestNeighbor(
 }
 
 /**
- * Formats minutes from midnight to HH:MM AM/PM string
+ * Helper to generate permutations for small arrays (N <= 6)
  */
+function getPermutations<T>(arr: T[]): T[][] {
+  if (arr.length <= 1) return [arr];
+  const result: T[][] = [];
+  for (let i = 0; i < arr.length; i++) {
+    const current = arr[i];
+    const remaining = [...arr.slice(0, i), ...arr.slice(i + 1)];
+    const remainingPerms = getPermutations(remaining);
+    for (const perm of remainingPerms) {
+      result.push([current, ...perm]);
+    }
+  }
+  return result;
+}
+
+/**
+ * Smart Daylight & Practical Itinerary Optimizer:
+ * Prioritizes waterfalls & rainforests in morning/early daylight (08:30 AM - 03:00 PM)
+ * and beaches/viewpoints at sunset (04:00 PM - 06:30 PM).
+ */
+export function sequenceSmartDaylight(
+  destinations: Destination[],
+  startTimeStr: string = '08:30 AM',
+  startCoords: { latitude: number; longitude: number } = MADAKUMBURA_CENTER
+): Destination[] {
+  if (destinations.length <= 1) return [...destinations];
+
+  if (destinations.length <= 6) {
+    const allPerms = getPermutations(destinations);
+    const startMinutes = parseTimeToMinutes(startTimeStr);
+
+    let bestPerm = destinations;
+    let minScore = Infinity;
+
+    for (const perm of allPerms) {
+      let curLat = startCoords.latitude;
+      let curLng = startCoords.longitude;
+      let curTime = startMinutes;
+      let totalDist = 0;
+      let scorePenalty = 0;
+
+      for (let i = 0; i < perm.length; i++) {
+        const dest = perm[i];
+        const dist = haversineDistance(curLat, curLng, dest.latitude, dest.longitude);
+        const travelMin = estimateTravelMinutes(dist);
+        totalDist += dist;
+
+        const arrivalMin = curTime + travelMin;
+        const stayMin = dest.recommendedStayMinutes || 60;
+        const departureMin = arrivalMin + stayMin;
+
+        const isNatureOrWaterfall =
+          dest.categoryId === 'Waterfall / Natural' ||
+          /ella|waterfall|falls|forest|nature|safari|river/i.test(dest.name);
+
+        const isBeach =
+          dest.categoryId === 'Beach' ||
+          /beach|coast|coral|marine|surf/i.test(dest.name);
+
+        const isMuseum =
+          dest.categoryId === 'Cultural / Museum' ||
+          /museum|gallery/i.test(dest.name);
+
+        const isDining =
+          dest.categoryId === 'Restaurant / Cafe' ||
+          /restaurant|cafe|food/i.test(dest.name);
+
+        // 1. Waterfalls & Nature: MUST BE IN MORNING/DAYLIGHT
+        if (isNatureOrWaterfall) {
+          if (arrivalMin <= 12 * 60) {
+            scorePenalty -= 35; // Morning bonus
+          } else if (arrivalMin <= 14 * 60 + 30) {
+            scorePenalty -= 15; // Early afternoon bonus
+          } else if (arrivalMin > 16 * 60 + 30) {
+            // After 4:30 PM in jungle/waterfall: HEAVY PENALTY
+            scorePenalty += 200;
+          } else if (arrivalMin > 15 * 60 + 30) {
+            scorePenalty += 60;
+          }
+        }
+
+        // 2. Beaches: Spectacular at Sunset (4:00 PM - 6:30 PM)
+        if (isBeach) {
+          if (arrivalMin >= 16 * 60 && arrivalMin <= 18 * 60 + 30) {
+            scorePenalty -= 40; // Sunset prime time bonus
+          } else if (arrivalMin >= 11 * 60 + 30 && arrivalMin <= 14 * 60) {
+            scorePenalty += 10; // Midday heat
+          }
+        }
+
+        // 3. Cultural Museums: Avoid arriving after closing time
+        if (isMuseum) {
+          if (arrivalMin > 16 * 60 + 45) {
+            scorePenalty += 80;
+          }
+        }
+
+        // 4. Dining: Lunch or Evening bonus
+        if (isDining) {
+          if (
+            (arrivalMin >= 11 * 60 + 30 && arrivalMin <= 14 * 60) ||
+            arrivalMin >= 17 * 60 + 30
+          ) {
+            scorePenalty -= 20;
+          }
+        }
+
+        curTime = departureMin;
+        curLat = dest.latitude;
+        curLng = dest.longitude;
+      }
+
+      const compositeScore = totalDist * 1.5 + scorePenalty;
+      if (compositeScore < minScore) {
+        minScore = compositeScore;
+        bestPerm = perm;
+      }
+    }
+
+    return bestPerm;
+  }
+
+  return sequenceNearestNeighbor(destinations, startCoords);
+}
+
 export function minutesToTimeString(minutes: number): string {
   const normMinutes = minutes % (24 * 60);
   const hours = Math.floor(normMinutes / 60);
@@ -99,9 +223,6 @@ export function minutesToTimeString(minutes: number): string {
   return `${displayHours}:${padMins} ${period}`;
 }
 
-/**
- * Parses time string like "08:30" or "08:30 AM" into minutes from midnight
- */
 export function parseTimeToMinutes(timeStr: string): number {
   if (!timeStr) return 8 * 60 + 30; // Default 8:30 AM
   const cleaned = timeStr.trim();
@@ -116,13 +237,20 @@ export function parseTimeToMinutes(timeStr: string): number {
   return h * 60 + m;
 }
 
-/**
- * Builds chronological time-sequenced schedule (REQ-12)
- */
+export function parseOperatingHours(hoursStr?: string): { openMinutes: number; closeMinutes: number } | null {
+  if (!hoursStr || !hoursStr.includes('-')) return null;
+  const parts = hoursStr.split('-');
+  if (parts.length !== 2) return null;
+  const openMinutes = parseTimeToMinutes(parts[0].trim());
+  const closeMinutes = parseTimeToMinutes(parts[1].trim());
+  return { openMinutes, closeMinutes };
+}
+
 export function buildItinerarySchedule(
   orderedDestinations: Destination[],
   startTimeStr: string = '08:30 AM',
-  startCoords = MADAKUMBURA_CENTER
+  startCoords = MADAKUMBURA_CENTER,
+  optimizationMode: 'smart-daylight' | 'shortest-distance' | 'manual-custom' = 'smart-daylight'
 ): Itinerary {
   let currentTimeMinutes = parseTimeToMinutes(startTimeStr);
   let totalDistanceKm = 0;
@@ -138,7 +266,7 @@ export function buildItinerarySchedule(
       dest.longitude
     );
     const travelMin = estimateTravelMinutes(legDist);
-    
+
     totalDistanceKm += legDist;
     totalTravelMinutes += travelMin;
 
@@ -146,7 +274,43 @@ export function buildItinerarySchedule(
     const stayMin = dest.recommendedStayMinutes || 60;
     const departureMin = arrivalMin + stayMin;
 
-    // Advance current time for next iteration
+    // Operating hours check
+    let hasTimeConflict = false;
+    let operatingHoursWarning: string | undefined;
+    const hours = parseOperatingHours(dest.operatingHours);
+    if (hours) {
+      if (arrivalMin < hours.openMinutes) {
+        hasTimeConflict = true;
+        operatingHoursWarning = `Arriving before opening time (${dest.operatingHours}).`;
+      } else if (departureMin > hours.closeMinutes) {
+        hasTimeConflict = true;
+        operatingHoursWarning = `Tour extends past closing time (${dest.operatingHours}).`;
+      }
+    }
+
+    // Daylight Safety & Practical Travel Check
+    let daylightWarning: string | undefined;
+    const isNatureOrWaterfall =
+      dest.categoryId === 'Waterfall / Natural' ||
+      /ella|waterfall|falls|forest|nature|safari|river/i.test(dest.name);
+
+    const isBeach =
+      dest.categoryId === 'Beach' ||
+      /beach|coast|coral|marine|surf/i.test(dest.name);
+
+    if (isNatureOrWaterfall) {
+      if (arrivalMin >= 16 * 60 + 30) {
+        daylightWarning =
+          '⚠️ Late Daylight Warning: Rainforest and waterfall trails become dark, muddy, and hazardous after 4:30 PM. Morning or early afternoon visit is strongly recommended for safety.';
+      } else if (arrivalMin <= 12 * 60) {
+        daylightWarning = '☀️ Ideal Morning Daylight: Optimal safety, cool temperature, and clear scenic views.';
+      }
+    } else if (isBeach) {
+      if (arrivalMin >= 16 * 60 && arrivalMin <= 18 * 60 + 30) {
+        daylightWarning = '🌅 Golden Hour Sunset: Prime timing for coastal views, photography, and evening breeze.';
+      }
+    }
+
     currentTimeMinutes = departureMin;
     currentLat = dest.latitude;
     currentLng = dest.longitude;
@@ -159,7 +323,9 @@ export function buildItinerarySchedule(
       stayMinutes: stayMin,
       arrivalTime: minutesToTimeString(arrivalMin),
       departureTime: minutesToTimeString(departureMin),
-      hasTimeConflict: false // Can be evaluated against operating hours
+      hasTimeConflict,
+      operatingHoursWarning,
+      daylightWarning,
     };
   });
 
@@ -173,10 +339,11 @@ export function buildItinerarySchedule(
     totalVisitHours: Math.round((totalMinutes / 60) * 10) / 10,
     startTime: startTimeStr,
     endTime: minutesToTimeString(currentTimeMinutes),
+    optimizationMode,
     startLocation: {
       name: startCoords.name,
       latitude: startCoords.latitude,
-      longitude: startCoords.longitude
-    }
+      longitude: startCoords.longitude,
+    },
   };
 }

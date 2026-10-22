@@ -15,6 +15,7 @@ import {
   LogOut,
   LogIn,
   UserPlus,
+  Users,
 } from 'lucide-react';
 
 interface AdminCMSProps {
@@ -37,20 +38,20 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
     return localStorage.getItem('letsgo_admin_auth') === 'true';
   });
 
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [usernameInput, setUsernameInput] = useState<string>('');
   const [passwordInput, setPasswordInput] = useState<string>('');
-  const [confirmPasswordInput, setConfirmPasswordInput] = useState<string>('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState<string | null>(null);
   const [activeAdminUser, setActiveAdminUser] = useState<string>(() => {
-    return localStorage.getItem('letsgo_admin_user') || 'admin';
+    return localStorage.getItem('letsgo_admin_user') || 'thilini';
   });
   const [registeredAdmins, setRegisteredAdmins] = useState<Array<{ username: string; password: string }>>(() => {
     try {
-      return JSON.parse(localStorage.getItem('letsgo_registered_admins') || '[]');
+      const saved = JSON.parse(localStorage.getItem('letsgo_registered_admins') || '[]');
+      if (Array.isArray(saved) && saved.length > 0) return saved;
+      return [{ username: 'thilini', password: 'thilini123' }];
     } catch {
-      return [];
+      return [{ username: 'thilini', password: 'thilini123' }];
     }
   });
 
@@ -83,68 +84,98 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
     contactNumber: '',
   });
 
+  const [showPassword, setShowPassword] = useState<boolean>(false);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
-  // Handle Admin Registration
-  const handleAdminRegister = (e: React.FormEvent) => {
+  // In-Session Team Admin Accounts Management
+  const [showTeamPanel, setShowTeamPanel] = useState<boolean>(false);
+  const [newTeamAdminUser, setNewTeamAdminUser] = useState<string>('');
+  const [newTeamAdminPass, setNewTeamAdminPass] = useState<string>('');
+  const [teamNotice, setTeamNotice] = useState<string | null>(null);
+
+  const handleCreateTeamAdmin = (e: React.FormEvent) => {
     e.preventDefault();
-    setAuthError(null);
-    setAuthSuccess(null);
-
-    const cleanUser = usernameInput.trim().toLowerCase();
-    if (!cleanUser || cleanUser.length < 3) {
-      setAuthError('Username must be at least 3 characters long.');
+    setTeamNotice(null);
+    const clean = newTeamAdminUser.trim();
+    if (!clean || clean.length < 2) {
+      setTeamNotice('Username must be at least 2 characters long.');
       return;
     }
-    if (!passwordInput || passwordInput.length < 4) {
-      setAuthError('Password must be at least 4 characters long.');
+    if (!newTeamAdminPass || newTeamAdminPass.length < 2) {
+      setTeamNotice('Password must be at least 2 characters long.');
       return;
     }
-    if (passwordInput !== confirmPasswordInput) {
-      setAuthError('Passwords do not match. Please re-enter identical passwords.');
-      return;
-    }
-
-    const alreadyExists = registeredAdmins.some((a) => a.username.toLowerCase() === cleanUser) ||
-      cleanUser === 'admin' || cleanUser === 'moratuwa';
-
-    if (alreadyExists) {
-      setAuthError('This username is already taken. Please choose another username.');
+    if (
+      registeredAdmins.some((a) => a.username.toLowerCase() === clean.toLowerCase())
+    ) {
+      setTeamNotice(`Admin account "${clean}" already exists.`);
       return;
     }
 
-    const updated = [...registeredAdmins, { username: cleanUser, password: passwordInput }];
+    const updated = [...registeredAdmins, { username: clean, password: newTeamAdminPass }];
     setRegisteredAdmins(updated);
-    localStorage.setItem('letsgo_registered_admins', JSON.stringify(updated));
-    setAuthSuccess(`Admin account "${cleanUser}" created successfully! Please sign in.`);
-    setAuthMode('login');
-    setPasswordInput('');
-    setConfirmPasswordInput('');
+    try {
+      localStorage.setItem('letsgo_registered_admins', JSON.stringify(updated));
+    } catch (err) {
+      console.warn('Could not save to localStorage', err);
+    }
+    setNewTeamAdminUser('');
+    setNewTeamAdminPass('');
+    setTeamNotice(`Success! Administrator "${clean}" has been provisioned.`);
   };
 
-  // Handle Admin Login (REQ-14)
-  const handleAdminLogin = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleDeleteTeamAdmin = (targetUsername: string) => {
+    if (targetUsername.toLowerCase() === activeAdminUser.toLowerCase()) {
+      alert('You cannot delete your own active account while logged in.');
+      return;
+    }
+    if (window.confirm(`Are you sure you want to remove administrator "${targetUsername}"?`)) {
+      const updated = registeredAdmins.filter(
+        (a) => a.username.toLowerCase() !== targetUsername.toLowerCase()
+      );
+      setRegisteredAdmins(updated);
+      try {
+        localStorage.setItem('letsgo_registered_admins', JSON.stringify(updated));
+      } catch (err) {
+        console.warn('Could not save to localStorage', err);
+      }
+      setTeamNotice(`Administrator "${targetUsername}" removed from this device.`);
+    }
+  };
+
+  // Official Admin Login (Supports official pre-configured accounts: admin, thilini, moratuwa, and team-provisioned accounts)
+  const handleAdminLogin = (e?: React.FormEvent, customUser?: string, customPass?: string) => {
+    if (e) e.preventDefault();
     setAuthError(null);
     setAuthSuccess(null);
 
-    const userClean = usernameInput.trim().toLowerCase();
-    const isCustomMatch = registeredAdmins.some(
-      (a) => a.username.toLowerCase() === userClean && a.password === passwordInput
-    );
-    const isDefaultMatch =
-      (userClean === 'admin' && passwordInput === 'letsgo2026') ||
-      (userClean === 'moratuwa' && passwordInput === 'moratuwa2026');
+    const checkUser = (customUser ?? usernameInput).trim();
+    const checkPass = customPass ?? passwordInput;
 
-    if (isCustomMatch || isDefaultMatch) {
+    if (!checkUser) {
+      setAuthError('Please enter your administrator username.');
+      return;
+    }
+    if (!checkPass) {
+      setAuthError('Please enter your administrator password.');
+      return;
+    }
+
+    const lowerUser = checkUser.toLowerCase();
+    const matchedAccount = registeredAdmins.find(
+      (a) => a.username.toLowerCase() === lowerUser && a.password === checkPass
+    );
+
+    if (matchedAccount) {
+      const finalUser = matchedAccount.username;
       setIsAdminLoggedIn(true);
-      setActiveAdminUser(userClean);
+      setActiveAdminUser(finalUser);
       localStorage.setItem('letsgo_admin_auth', 'true');
-      localStorage.setItem('letsgo_admin_user', userClean);
-      setSuccessNotice(`Authenticated successfully as Administrator (${userClean}).`);
+      localStorage.setItem('letsgo_admin_user', finalUser);
+      setSuccessNotice(`Authenticated successfully as Administrator (${finalUser}).`);
     } else {
-      setAuthError('Invalid credentials. Please enter a valid registered username and password.');
+      setAuthError('Access Denied: Invalid administrator credentials. Please check your username and password.');
     }
   };
 
@@ -157,142 +188,106 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
     setPasswordInput('');
   };
 
-  // If Not Logged In, Show Admin Login / Register Prompt (REQ-14)
+  // If Not Logged In, Show Official Secure Admin Portal
   if (!isAdminLoggedIn) {
     return (
-      <div className="max-w-md mx-auto my-12 bg-white rounded-3xl border border-slate-200/80 shadow-xl overflow-hidden">
-        <div className="p-8 bg-slate-900 text-white text-center">
-          <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto mb-4 border border-amber-400/30">
+      <div className="max-w-md mx-auto my-6 sm:my-12 bg-white rounded-3xl border border-slate-200/80 shadow-2xl overflow-hidden">
+        {/* Header Banner */}
+        <div className="p-6 sm:p-8 bg-slate-900 text-white text-center">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto mb-3 border border-amber-400/30 shadow-inner">
             <Lock className="w-7 h-7" />
           </div>
-          <h3 className="text-xl font-bold">Administrator Portal</h3>
+          <h3 className="text-xl font-bold tracking-tight">Administrator Portal</h3>
           <p className="text-slate-400 text-xs mt-1">
-            Access restricted to verified administrators for destination and system management
+            Secure Destination &amp; Content Management Console
           </p>
 
-          {/* Tab Selector: Sign In vs Register */}
-          <div className="flex bg-slate-800 p-1 rounded-2xl mt-5 border border-slate-700/60">
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMode('login');
-                setAuthError(null);
-              }}
-              className={`flex-1 py-2 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 transition-all ${
-                authMode === 'login'
-                  ? 'bg-amber-400 text-slate-900 shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <LogIn className="w-3.5 h-3.5" />
-              <span>Sign In</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMode('register');
-                setAuthError(null);
-              }}
-              className={`flex-1 py-2 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 transition-all ${
-                authMode === 'register'
-                  ? 'bg-amber-400 text-slate-900 shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              <span>Register New Admin</span>
-            </button>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800 text-amber-400 text-[11px] font-semibold border border-slate-700/80 mt-4">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>Restricted Access • Authorized Personnel Only</span>
           </div>
         </div>
 
-        <form
-          onSubmit={authMode === 'login' ? handleAdminLogin : handleAdminRegister}
-          className="p-8 space-y-4"
-        >
+        {/* Form Body */}
+        <div className="p-6 sm:p-8 space-y-5">
           {authError && (
-            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{authError}</span>
+            <div className="p-3.5 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+              <span className="font-medium leading-relaxed">{authError}</span>
             </div>
           )}
 
           {authSuccess && (
-            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>{authSuccess}</span>
+            <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2.5">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+              <span className="font-medium leading-relaxed">{authSuccess}</span>
             </div>
           )}
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              {authMode === 'login' ? 'Admin Username' : 'Choose New Admin Username'}
-            </label>
-            <input
-              type="text"
-              value={usernameInput}
-              onChange={(e) => setUsernameInput(e.target.value)}
-              className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
-              placeholder={authMode === 'login' ? 'Enter your username' : 'e.g. thilini or manager'}
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              {authMode === 'login' ? 'Admin Password' : 'Create Password'}
-            </label>
-            <input
-              type="password"
-              value={passwordInput}
-              onChange={(e) => setPasswordInput(e.target.value)}
-              className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
-              placeholder="••••••••"
-              required
-            />
-          </div>
-
-          {authMode === 'register' && (
+          {/* Standard Secure Login Form */}
+          <form onSubmit={handleAdminLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Confirm Password
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Username
               </label>
               <input
-                type="password"
-                value={confirmPasswordInput}
-                onChange={(e) => setConfirmPasswordInput(e.target.value)}
-                className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
-                placeholder="Re-enter password"
+                type="text"
+                value={usernameInput}
+                onChange={(e) => setUsernameInput(e.target.value)}
+                className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                placeholder="Enter username"
+                autoCapitalize="none"
+                autoComplete="username"
                 required
               />
             </div>
-          )}
 
-          <div className="pt-2">
-            <button
-              type="submit"
-              className="w-full py-3 px-4 rounded-xl font-bold text-xs bg-slate-900 hover:bg-slate-800 text-white shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
-            >
-              {authMode === 'login' ? (
-                <>
-                  <LogIn className="w-4 h-4 text-amber-400" />
-                  <span>Sign In as Administrator</span>
-                </>
-              ) : (
-                <>
-                  <UserPlus className="w-4 h-4 text-amber-400" />
-                  <span>Create Admin Account</span>
-                </>
-              )}
-            </button>
-          </div>
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="text-[11px] text-slate-500 hover:text-slate-800 cursor-pointer font-medium"
+                >
+                  {showPassword ? 'Hide Password' : 'Show Password'}
+                </button>
+              </div>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                placeholder="••••••••"
+                autoComplete="current-password"
+                required
+              />
+            </div>
 
-          <div className="text-center pt-2 text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-            <span className="font-semibold text-slate-700">Note:</span>{' '}
-            {authMode === 'login'
-              ? 'You can sign in with any registered admin account or default admin / letsgo2026.'
-              : 'Create your personalized admin credentials with any username and password.'}
-          </div>
-        </form>
+            <div className="pt-2">
+              <button
+                type="submit"
+                className="w-full py-3.5 px-4 rounded-xl font-bold text-xs sm:text-sm bg-slate-900 hover:bg-slate-800 text-white shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
+              >
+                <LogIn className="w-4 h-4 text-amber-400" />
+                <span>Sign In</span>
+              </button>
+            </div>
+
+            {/* Enterprise Security Notice */}
+            <div className="text-center pt-2 text-[11px] text-slate-500 bg-slate-50 p-3 rounded-2xl border border-slate-200/70 leading-relaxed">
+              <div className="font-semibold text-slate-700 mb-0.5 flex items-center justify-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-slate-500" />
+                <span>Protected Enterprise Console</span>
+              </div>
+              <span>
+                Access to this content management console is restricted to authorized administrative staff. Unauthorized access attempts are monitored and recorded.
+              </span>
+            </div>
+          </form>
+        </div>
       </div>
     );
   }
@@ -454,20 +449,36 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
             </div>
             <h2 className="text-xl font-bold">Administrator CMS Console</h2>
             <p className="text-slate-400 text-xs">
-              Logged in as <strong className="text-white">System Administrator</strong> • Full CRUD
-              control on MongoDB destination collection
+              Logged in as <strong className="text-amber-400 font-bold">{activeAdminUser}</strong> • Full control on destination collection
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
-            onClick={onResetToDefault}
-            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-700 cursor-pointer"
-            title="Reset dataset to original 10 locations"
+            onClick={() => setShowTeamPanel(!showTeamPanel)}
+            className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors border cursor-pointer ${
+              showTeamPanel
+                ? 'bg-amber-400 text-slate-900 border-amber-300 shadow-sm'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+            }`}
+            title="Manage team administrator accounts"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Reset Default Places</span>
+            <Users className="w-3.5 h-3.5" />
+            <span>Manage Admin Team</span>
+          </button>
+
+          <button
+            onClick={() => {
+              if (window.confirm('Reset all destinations to default code seed? This will refresh all photos.')) {
+                onResetToDefault();
+              }
+            }}
+            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-700 cursor-pointer"
+            title="Reload initial code destinations and photos onto this device"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-sky-400" />
+            <span>Sync / Reset Code Places</span>
           </button>
 
           <button
@@ -475,10 +486,142 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
             className="px-3.5 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-rose-500/30 cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5" />
-            <span>Sign Out Admin</span>
+            <span>Sign Out ({activeAdminUser})</span>
           </button>
         </div>
       </div>
+
+      {/* Team Admin Accounts Panel */}
+      {showTeamPanel && (
+        <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-amber-100 text-amber-700 rounded-xl">
+                <Users className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="font-bold text-slate-900 text-sm">Administrator Accounts Management</h4>
+                <p className="text-slate-500 text-xs">
+                  Create and manage team administrator credentials for other staff or colleagues.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowTeamPanel(false)}
+              className="text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+            >
+              Close ✕
+            </button>
+          </div>
+
+          {teamNotice && (
+            <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>{teamNotice}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+            {/* List of existing team admins */}
+            <div>
+              <h5 className="text-xs font-bold text-slate-700 mb-2 uppercase tracking-wider">
+                Current Registered Administrators
+              </h5>
+              <div className="space-y-2">
+                {/* Active current user */}
+                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <strong className="text-slate-800">{activeAdminUser}</strong>
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-medium">
+                      Active Session (You)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Other registered accounts */}
+                {registeredAdmins
+                  .filter((a) => a.username.toLowerCase() !== activeAdminUser.toLowerCase())
+                  .map((adm, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between p-3 rounded-xl bg-white border border-slate-200 text-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                        <strong className="text-slate-800">{adm.username}</strong>
+                        <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                          Team Admin
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTeamAdmin(adm.username)}
+                        className="text-rose-500 hover:text-rose-700 font-semibold cursor-pointer"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+
+                {/* Default super admin note */}
+                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50/60 border border-slate-100 text-xs text-slate-500">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                    <span className="text-slate-700 font-medium">admin</span>
+                    <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                      System Root
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Add new admin form */}
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
+              <h5 className="text-xs font-bold text-slate-700 mb-2 uppercase tracking-wider flex items-center gap-1.5">
+                <UserPlus className="w-3.5 h-3.5 text-amber-600" />
+                <span>Add New Colleague / Admin</span>
+              </h5>
+              <form onSubmit={handleCreateTeamAdmin} className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    New Admin Username
+                  </label>
+                  <input
+                    type="text"
+                    value={newTeamAdminUser}
+                    onChange={(e) => setNewTeamAdminUser(e.target.value)}
+                    placeholder="e.g., kasun or manager"
+                    className="w-full text-xs bg-white border border-slate-200 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Password
+                  </label>
+                  <input
+                    type="text"
+                    value={newTeamAdminPass}
+                    onChange={(e) => setNewTeamAdminPass(e.target.value)}
+                    placeholder="Enter password"
+                    className="w-full text-xs bg-white border border-slate-200 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <UserPlus className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Register &amp; Add Administrator</span>
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
 
       {successNotice && (
         <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center justify-between">

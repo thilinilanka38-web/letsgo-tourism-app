@@ -36,7 +36,11 @@ export interface ItineraryStop {
   arrivalTime: string;
   departureTime: string;
   hasTimeConflict?: boolean;
+  daylightWarning?: string;
+  operatingHoursWarning?: string;
 }
+
+export type OptimizationMode = 'smart-daylight' | 'shortest-distance' | 'manual-custom';
 
 export interface Itinerary {
   id?: string;
@@ -47,6 +51,7 @@ export interface Itinerary {
   totalVisitHours: number;
   startTime: string;
   endTime: string;
+  optimizationMode?: OptimizationMode;
   startLocation: {
     name: string;
     latitude: number;
