@@ -18,5 +18,9 @@ In a new terminal window:
 cd client
 npm install
 npm run dev
-# Running on http://localhost:5173
+# Running on http://localhost:3000
 ```
+
+# Live Deployment URL: https://letsgo-tourism-app-sable.vercel.app/
+
+
